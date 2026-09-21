@@ -1,0 +1,8 @@
+radial_position_m,pitting_depth_mm,inspection_date,blade_id,notes
+5,0.2,2026-08-01,B1,minor gel-coat pitting near root - within tolerance
+22,0.6,2026-08-01,B1,light rain-erosion striping
+41,1.1,2026-08-01,B1,moderate roughness band
+63,1.9,2026-08-01,B1,progressing erosion; LE tape lifting
+80,3.5,2026-08-01,B1,severe pitting - primary defect for this run
+101,0.8,2026-08-01,B1,localized secondary spot
+118,0.3,2026-08-01,B1,tip erosion - low structural sensitivity

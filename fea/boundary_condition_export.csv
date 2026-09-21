@@ -1,0 +1,6 @@
+parameter,value,unit
+erosion_radial_position,80.00,m
+erosion_pitting_depth,3.50,mm
+peak_rotor_bending_moment,3.5127,MNm
+equivalent_applied_force,43908.83,N
+yield_strength_threshold,250,MPa
