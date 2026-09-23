@@ -1,0 +1,8 @@
+radial_position_m,pitting_depth_mm,inspection_date,blade_id,notes
+5,0.15,2026-06-01,B1,baseline reading
+22,0.45,2026-06-01,B1,baseline reading
+41,0.90,2026-06-01,B1,baseline reading
+63,1.50,2026-06-01,B1,baseline reading
+80,1.80,2026-06-01,B1,baseline reading - moderate at time of inspection
+101,0.75,2026-06-01,B1,baseline reading
+118,0.28,2026-06-01,B1,baseline reading
