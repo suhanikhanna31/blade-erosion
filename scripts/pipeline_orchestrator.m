@@ -15,9 +15,19 @@
 %   5. Layer-2 guardrail: verify REQ-CTRL-02 (>=25% suppression)
 %   6. Export peak load boundary condition for ANSYS
 %   7. Generate report figures + pass/fail dashboard
+%   8. Post a JSON run summary to an automation webhook (n8n / Zapier),
+%      if one is configured, so downstream alerting/ticketing/logging can
+%      run without anyone watching the MATLAB console (see automation/).
 %
 % Author: Blade Integrity Engineering Pipeline
 clear; clc; close all;
+
+% --- Automation webhook (n8n / Zapier) ---------------------------------
+% Paste an n8n Webhook node's Production URL, or a Zapier "Webhooks by
+% Zapier" Catch Hook URL, here to get an automatic notification/log/ticket
+% every time this pipeline runs. Leave empty ('') to disable - the
+% pipeline runs identically either way. See automation/README_automation.md.
+webhookUrl = '';   % e.g. 'https://your-n8n-host/webhook/blade-erosion-pipeline'
 
 thisFile = mfilename('fullpath');
 projectRoot = fileparts(fileparts(thisFile));   % .../blade_erosion_pipeline
@@ -42,6 +52,31 @@ fprintf('Ingested %d inspection records from %s\n', numel(inspection.radial_posi
 erosionMatrix = [inspection.radial_position_m(idx), inspection.pitting_depth_mm(idx)];
 fprintf('Governing defect: %.1f m span, %.2f mm pitting depth (blade %s)\n', ...
     erosionMatrix(1), erosionMatrix(2), inspection.blade_id{idx});
+
+%% 1b. Layer 0 - Erosion Progression Cross-Check (REQ-MON-04) ---------------
+% Compares this inspection against the prior one on file to catch defects
+% that are spreading fast, even if today's absolute depth alone wouldn't
+% trigger anything else in the pipeline. This is a monitoring/scheduling
+% flag, not a pass/fail safety gate like Layers 1-2 below - a location can
+% be "growing fast but still shallow" and vice versa, and both are useful
+% to know separately.
+previousCsvPath = fullfile(dataDir, 'erosion_inspection_data_previous.csv');
+rapidThreshold_mmPerMonth = 0.5; % illustrative - tune to real coating/erosion history
+
+progression = trackErosionProgression(inspection, previousCsvPath, ...
+    'MatchTolerance_m', 3, 'RapidThreshold_mmPerMonth', rapidThreshold_mmPerMonth);
+
+if progression.available
+    fprintf('Layer 0 (Erosion Progression Cross-Check): %s - %s\n', ...
+        tern(progression.anyRapid, 'FLAGGED', 'CLEAR'), progression.message);
+    if progression.anyRapid
+        warning('PipelineOrchestrator:RapidErosionProgression', ...
+            '%.1f m span is progressing faster than %.2f mm/month. Recommend priority reinspection independent of today''s FEA/control result.', ...
+            progression.worstRadialPos_m, rapidThreshold_mmPerMonth);
+    end
+else
+    fprintf('Layer 0 (Erosion Progression Cross-Check): NO BASELINE - %s\n', progression.message);
+end
 
 %% 2. Layer 1 - Physical Feasibility Check ----------------------------------
 bladeLength_m   = 120;   % nameplate blade length used for bounds checking
@@ -149,8 +184,45 @@ fprintf('REQ-SYS-01 (Automated Workflow Execution)........ %s\n', tern(req1, 'PA
 fprintf('REQ-CTRL-02 (Vibration Suppression >=25%%)........ %s (Achieved %.1f%%)\n', ...
     tern(req2, 'PASSED', 'FAILED'), reductionPct);
 fprintf('REQ-FEA-03 (Structural Boundary <250 MPa)........ PENDING ANSYS RUN (see /fea)\n');
+fprintf('REQ-MON-04 (Erosion Progression Monitoring)...... %s\n', ...
+    tern(~progression.available, 'NO BASELINE', tern(progression.anyRapid, 'FLAGGED', 'CLEAR')));
 fprintf('Boundary condition file ready for import: %s\n', exportPath);
 fprintf('Figures written to: %s\n', figDir);
+
+%% 8. Build + persist + broadcast the machine-readable run summary -----------
+% This is what an n8n/Zapier workflow consumes downstream - alerting on a
+% failed guardrail, logging every run to a sheet, or opening a maintenance
+% ticket, without anyone needing to watch the MATLAB console. See
+% automation/README_automation.md for the two-minute n8n/Zapier setup.
+summary = struct( ...
+    'pipeline',            'blade-erosion-integrity-pipeline', ...
+    'timestamp',           datestr(now, 'yyyy-mm-ddTHH:MM:SS'), ...
+    'bladeId',              inspection.blade_id{idx}, ...
+    'erosionRadialPos_m',   erosionMatrix(1), ...
+    'erosionDepth_mm',      erosionMatrix(2), ...
+    'peakClean_MNm',        peakClean, ...
+    'peakUnmanaged_MNm',    peakUnmanaged, ...
+    'peakManaged_MNm',      peakShaftLoad, ...
+    'suppressionPct',       reductionPct, ...
+    'reqSys01_pass',        req1, ...
+    'reqCtrl02_pass',       req2, ...
+    'reqFea03_status',      'PENDING', ...
+    'reqMon04_status',      tern(~progression.available, 'NO_BASELINE', tern(progression.anyRapid, 'FLAGGED', 'CLEAR')), ...
+    'worstGrowthRate_mmPerMonth', progression.worstGrowthRate_mmPerMonth, ...
+    'worstGrowthRadialPos_m',     progression.worstRadialPos_m, ...
+    'overallStatus',        tern(req1 && req2 && ~progression.anyRapid, 'OK', 'NEEDS_REVIEW'), ...
+    'ansysBoundaryFile',    exportPath, ...
+    'graphAPath',           fullfile(figDir, 'graphA_time_series_control_response.png') ...
+);
+
+summaryPath = fullfile(projectRoot, 'reports', 'pipeline_run_summary.json');
+fid = fopen(summaryPath, 'w');
+fprintf(fid, '%s', jsonencode(summary));
+fclose(fid);
+fprintf('Run summary written to: %s\n', summaryPath);
+
+postPipelineWebhook(webhookUrl, summary);
+
 fprintf('=== Closed-Loop Blade Erosion Pipeline: END ===\n');
 
 % NOTE: helper functions tern() and readErosionCsv() live in their own
