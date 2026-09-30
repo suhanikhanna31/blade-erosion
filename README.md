@@ -1,4 +1,4 @@
-# 📋 Closed-Loop Blade Erosion Integrity & Active Control Pipeline
+# 📋 Closed-Loop Turbine Blade Erosion Integrity & Active Control Pipeline
 
 A Model-Based Design (MBD) automation pipeline for offshore wind turbine blades:
 inspection data → aerodynamic degradation model → Simulink active-damping
